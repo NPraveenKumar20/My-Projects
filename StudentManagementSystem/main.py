@@ -1,93 +1,109 @@
 import sqlite3
 
-conn = sqlite3.connect("students.db")
-conn.row_factory = sqlite3.Row
-cursor = conn.cursor()
+class Student:
+    def __init__(self, student_id=None, name=None, age=None, course=None, status="Active"):
+        self.id = student_id
+        self.name = name
+        self.age = age
+        self.course = course
+        self.status = status
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS students (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    age INTEGER,
-    course TEXT
-)
-""")
-conn.commit()
+    def __str__(self):
+        return f"ID: {self.id}, Name: {self.name}, Age: {self.age}, Course: {self.course}, Status: {self.status}"
 
-def ensure_status_column():
-    cursor.execute("PRAGMA table_info(students)")
-    cols = {row["name"] for row in cursor.fetchall()}
-    if "status" not in cols:
-        cursor.execute("ALTER TABLE students ADD COLUMN status TEXT NOT NULL DEFAULT 'Active'")
-        conn.commit()
-        cursor.execute("UPDATE students SET status='Active' WHERE status IS NULL")
-        conn.commit()
+class StudentManager:
+    def __init__(self, db_name="students.db"):
+        self.conn = sqlite3.connect(db_name)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
+        self.create_table()
+        self.ensure_status_column()
 
-ensure_status_column()
+    def create_table(self):
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            age INTEGER,
+            course TEXT,
+            status TEXT NOT NULL DEFAULT 'Active'
+        )
+        """)
+        self.conn.commit()
 
-def add_student(name, age, course):
-    cursor.execute(
-        "INSERT INTO students (name, age, course, status) VALUES (?, ?, ?, 'Active')",
-        (name, age, course),
-    )
-    conn.commit()
-    print("✅ Student added successfully!")
+    def ensure_status_column(self):
+        self.cursor.execute("PRAGMA table_info(students)")
+        cols = {row["name"] for row in self.cursor.fetchall()}
+        if "status" not in cols:
+            self.cursor.execute("ALTER TABLE students ADD COLUMN status TEXT NOT NULL DEFAULT 'Active'")
+            self.conn.commit()
 
-def view_students(active_only=True):
-    if active_only:
-        cursor.execute("SELECT * FROM students WHERE status='Active' ORDER BY id")
-        title = "\n--- Active Student Records ---"
-    else:
-        cursor.execute("SELECT * FROM students WHERE status='Inactive' ORDER BY id")
-        title = "\n--- Inactive Student Records ---"
+    def add_student(self, student: Student):
+        self.cursor.execute(
+            "INSERT INTO students (name, age, course, status) VALUES (?, ?, ?, ?)",
+            (student.name, student.age, student.course, student.status)
+        )
+        self.conn.commit()
+        print("✅ Student added successfully!")
 
-    rows = cursor.fetchall()
-    print(title)
-    if not rows:
-        print("❌ No student records found.")
-        return
-    print(f"{'ID':<5} {'Name':<20} {'Age':<5} {'Course':<15} {'Status':<10}")
-    print("-" * 60)
-    for r in rows:
-        print(f"{r['id']:<5} {r['name']:<20} {str(r['age']) if r['age'] is not None else '':<5} {str(r['course']) if r['course'] is not None else '':<15} {r['status']:<10}")
+    def view_students(self, active_only=True):
+        status_filter = "Active" if active_only else "Inactive"
+        self.cursor.execute("SELECT * FROM students WHERE status=? ORDER BY id", (status_filter,))
+        rows = self.cursor.fetchall()
 
-def search_student(student_id):
-    cursor.execute("SELECT * FROM students WHERE id=?", (student_id,))
-    r = cursor.fetchone()
-    if r:
-        print("\n--- Student Found ---")
-        print(f"ID: {r['id']}, Name: {r['name']}, Age: {r['age']}, Course: {r['course']}, Status: {r['status']}")
-    else:
-        print("❌ Student not found.")
+        title = f"\n--- {status_filter} Student Records ---"
+        print(title)
+        if not rows:
+            print("❌ No student records found.")
+            return
+        print(f"{'ID':<5} {'Name':<20} {'Age':<5} {'Course':<15} {'Status':<10}")
+        print("-" * 60)
+        for r in rows:
+            print(f"{r['id']:<5} {r['name']:<20} {str(r['age']) if r['age'] else '':<5} {r['course'] or '':<15} {r['status']:<10}")
 
-def update_student(student_id, name, age, course):
-    cursor.execute(
-        "UPDATE students SET name=?, age=?, course=? WHERE id=?",
-        (name, age, course, student_id),
-    )
-    conn.commit()
-    if cursor.rowcount > 0:
-        print("✅ Student updated successfully!")
-    else:
-        print("❌ Student ID not found.")
+    def search_student(self, student_id):
+        self.cursor.execute("SELECT * FROM students WHERE id=?", (student_id,))
+        r = self.cursor.fetchone()
+        if r:
+            student = Student(r["id"], r["name"], r["age"], r["course"], r["status"])
+            print("\n--- Student Found ---")
+            print(student)
+        else:
+            print("❌ Student not found.")
 
-def deactivate_student(student_id):
-    cursor.execute("UPDATE students SET status='Inactive' WHERE id=?", (student_id,))
-    conn.commit()
-    if cursor.rowcount > 0:
-        print("✅ Student marked as Inactive (soft deleted).")
-    else:
-        print("❌ Student ID not found.")
+    def update_student(self, student: Student):
+        self.cursor.execute(
+            "UPDATE students SET name=?, age=?, course=? WHERE id=?",
+            (student.name, student.age, student.course, student.id)
+        )
+        self.conn.commit()
+        if self.cursor.rowcount > 0:
+            print("✅ Student updated successfully!")
+        else:
+            print("❌ Student ID not found.")
 
-def activate_student(student_id):
-    cursor.execute("UPDATE students SET status='Active' WHERE id=?", (student_id,))
-    conn.commit()
-    if cursor.rowcount > 0:
-        print("✅ Student re-activated.")
-    else:
-        print("❌ Student ID not found.")
+    def deactivate_student(self, student_id):
+        self.cursor.execute("UPDATE students SET status='Inactive' WHERE id=?", (student_id,))
+        self.conn.commit()
+        if self.cursor.rowcount > 0:
+            print("✅ Student marked as Inactive (soft deleted).")
+        else:
+            print("❌ Student ID not found.")
+
+    def activate_student(self, student_id):
+        self.cursor.execute("UPDATE students SET status='Active' WHERE id=?", (student_id,))
+        self.conn.commit()
+        if self.cursor.rowcount > 0:
+            print("✅ Student re-activated.")
+        else:
+            print("❌ Student ID not found.")
+
+    def close(self):
+        self.conn.close()
 
 def menu():
+    manager = StudentManager()
+
     while True:
         print("\n--- Student Management System ---")
         print("1. Add Student")
@@ -109,13 +125,14 @@ def menu():
                 print("❌ Age must be a number.")
                 continue
             course = input("Enter course: ")
-            add_student(name, age, course)
+            student = Student(name=name, age=age, course=course)
+            manager.add_student(student)
 
         elif choice == "2":
-            view_students(active_only=True)
+            manager.view_students(active_only=True)
 
         elif choice == "3":
-            view_students(active_only=False)
+            manager.view_students(active_only=False)
 
         elif choice == "4":
             try:
@@ -123,7 +140,7 @@ def menu():
             except ValueError:
                 print("❌ ID must be a number.")
                 continue
-            search_student(student_id)
+            manager.search_student(student_id)
 
         elif choice == "5":
             try:
@@ -134,7 +151,8 @@ def menu():
                 continue
             name = input("Enter new name: ")
             course = input("Enter new course: ")
-            update_student(student_id, name, age, course)
+            student = Student(student_id=student_id, name=name, age=age, course=course)
+            manager.update_student(student)
 
         elif choice == "6":
             try:
@@ -142,7 +160,7 @@ def menu():
             except ValueError:
                 print("❌ ID must be a number.")
                 continue
-            deactivate_student(student_id)
+            manager.deactivate_student(student_id)
 
         elif choice == "7":
             try:
@@ -150,14 +168,15 @@ def menu():
             except ValueError:
                 print("❌ ID must be a number.")
                 continue
-            activate_student(student_id)
+            manager.activate_student(student_id)
 
         elif choice == "8":
             print("👋 Exiting...")
+            manager.close()
             break
 
         else:
             print("❌ Invalid choice, try again.")
 
-menu()
-conn.close()
+if __name__ == "__main__":
+    menu()
